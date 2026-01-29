@@ -1,10 +1,10 @@
 import streamlit as st
 from datetime import datetime, timedelta
+import statistics
 
 # --- Cycle Predictor Logic ---
 class CyclePredictor:
     def __init__(self, period_ranges):
-        # Sort periods by start date even if user enters them out of order
         self.period_ranges = sorted(period_ranges, key=lambda x: x[0])
         self.period_start_dates = [start for start, _ in self.period_ranges]
         self.cycle_lengths = self._calculate_cycle_lengths()
@@ -18,10 +18,11 @@ class CyclePredictor:
             for i in range(len(self.period_start_dates) - 1)
         ]
 
-        self.avg_cycle_length = sum(cycle_lengths) / len(cycle_lengths)
+        # Use median for more accurate prediction
+        self.median_cycle_length = statistics.median(cycle_lengths)
         self.min_cycle_length = min(cycle_lengths)
         self.max_cycle_length = max(cycle_lengths)
-        self.is_regular = (self.max_cycle_length - self.min_cycle_length) < 7  # Updated for strict ACOG guideline
+        self.is_regular = (self.max_cycle_length - self.min_cycle_length) <= 10
 
         return cycle_lengths
 
@@ -30,7 +31,7 @@ class CyclePredictor:
             return {"error": "Log at least 2 periods to predict."}
 
         last_period_start = self.period_start_dates[-1]
-        predicted_start = last_period_start + timedelta(days=round(self.avg_cycle_length))
+        predicted_start = last_period_start + timedelta(days=round(self.median_cycle_length))
 
         range_start = last_period_start + timedelta(days=self.min_cycle_length)
         range_end = last_period_start + timedelta(days=self.max_cycle_length)
@@ -41,7 +42,7 @@ class CyclePredictor:
             "confidence": "Higher" if self.is_regular else "Lower",
             "regularity": "Regular" if self.is_regular else "Irregular",
             "based_on": f"{len(self.cycle_lengths)} cycles",
-            "average_cycle_length": round(self.avg_cycle_length),
+            "median_cycle_length": round(self.median_cycle_length),
             "shortest_cycle": self.min_cycle_length,
             "longest_cycle": self.max_cycle_length
         }
@@ -75,7 +76,7 @@ class CyclePredictor:
             return {"error": "Log at least 2 periods to calculate ovulation."}
 
         last_period_start = self.period_start_dates[-1]
-        ovulation_day = last_period_start + timedelta(days=round(self.avg_cycle_length) - 14)
+        ovulation_day = last_period_start + timedelta(days=round(self.median_cycle_length) - 14)
         fertile_start = ovulation_day - timedelta(days=5)
         fertile_end = ovulation_day + timedelta(days=1)
 
@@ -131,7 +132,7 @@ else:
         st.caption(f"Confidence: {prediction['confidence']} — Based on {prediction['based_on']}")
 
         st.subheader("🔁 Cycle Stats")
-        st.markdown(f"- Average Cycle Length: {prediction['average_cycle_length']} days")
+        st.markdown(f"- Median Cycle Length: {prediction['median_cycle_length']} days")
         st.markdown(f"- Shortest Cycle: {prediction['shortest_cycle']} days")
         st.markdown(f"- Longest Cycle: {prediction['longest_cycle']} days")
         st.markdown(f"- Regularity: **{prediction['regularity']}**")
