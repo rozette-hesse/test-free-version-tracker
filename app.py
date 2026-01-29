@@ -101,15 +101,14 @@ with st.form(key="new_period_form"):
     submit = st.form_submit_button("Add Period")
 
     if submit:
-    if new_start and new_end and new_start <= new_end:
-        start_dt = datetime.combine(new_start, datetime.min.time())
-        end_dt = datetime.combine(new_end, datetime.min.time())
-        st.session_state.period_logs.append((start_dt, end_dt))
-        st.success("Period added.")
-        st.rerun()  # <- replaces st.experimental_rerun()
-    else:
-        st.error("Please enter valid start and end dates.")
-
+        if new_start and new_end and new_start <= new_end:
+            start_dt = datetime.combine(new_start, datetime.min.time())
+            end_dt = datetime.combine(new_end, datetime.min.time())
+            st.session_state.period_logs.append((start_dt, end_dt))
+            st.success("Period added.")
+            st.rerun()
+        else:
+            st.error("Please enter valid start and end dates.")
 
 if st.session_state.period_logs:
     st.divider()
