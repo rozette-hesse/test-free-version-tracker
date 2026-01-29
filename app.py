@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 # --- Cycle Predictor Logic ---
 class CyclePredictor:
     def __init__(self, period_ranges):
+        # Sort periods by start date even if user enters them out of order
         self.period_ranges = sorted(period_ranges, key=lambda x: x[0])
         self.period_start_dates = [start for start, _ in self.period_ranges]
         self.cycle_lengths = self._calculate_cycle_lengths()
@@ -20,7 +21,7 @@ class CyclePredictor:
         self.avg_cycle_length = sum(cycle_lengths) / len(cycle_lengths)
         self.min_cycle_length = min(cycle_lengths)
         self.max_cycle_length = max(cycle_lengths)
-        self.is_regular = (self.max_cycle_length - self.min_cycle_length) <= 7  # ACOG guideline
+        self.is_regular = (self.max_cycle_length - self.min_cycle_length) < 7  # Updated for strict ACOG guideline
 
         return cycle_lengths
 
@@ -90,47 +91,56 @@ class CyclePredictor:
 st.set_page_config(page_title="Cycle Tracker", layout="centered")
 st.title("Menstrual Cycle Tracker — Research-Based")
 
-num_periods = st.number_input("How many past periods would you like to log?", min_value=2, max_value=10, value=2, step=1)
+if "period_logs" not in st.session_state:
+    st.session_state.period_logs = []
 
-period_ranges = []
-for i in range(num_periods):
-    with st.expander(f"Period #{i + 1}"):
-        start_date = st.date_input(f"Start Date {i + 1}", key=f"start_{i}")
-        end_date = st.date_input(f"End Date {i + 1}", key=f"end_{i}")
+st.subheader("📥 Add New Period")
+with st.form(key="new_period_form"):
+    new_start = st.date_input("Start Date")
+    new_end = st.date_input("End Date")
+    submit = st.form_submit_button("Add Period")
 
-        if start_date and end_date and start_date <= end_date:
-            start_dt = datetime.combine(start_date, datetime.min.time())
-            end_dt = datetime.combine(end_date, datetime.min.time())
-            period_ranges.append((start_dt, end_dt))
-
-if st.button("Predict Cycle Insights"):
-    if len(period_ranges) < 2:
-        st.warning("Please log at least 2 periods.")
-    else:
-        predictor = CyclePredictor(period_ranges)
-        prediction = predictor.predict_next_period()
-
-        if "error" in prediction:
-            st.error(prediction["error"])
+    if submit:
+        if new_start and new_end and new_start <= new_end:
+            start_dt = datetime.combine(new_start, datetime.min.time())
+            end_dt = datetime.combine(new_end, datetime.min.time())
+            st.session_state.period_logs.append((start_dt, end_dt))
+            st.success("Period added.")
         else:
-            st.subheader("📅 Next Period Prediction")
-            st.success(f"Predicted Start Date: {prediction['predicted_start_date']}")
-            st.markdown(f"**Prediction Range:** {prediction['range'][0]} to {prediction['range'][1]}")
-            st.caption(f"Confidence: {prediction['confidence']} — Based on {prediction['based_on']}")
+            st.error("Please enter valid start and end dates.")
 
-            st.subheader("🔁 Cycle Stats")
-            st.markdown(f"- Average Cycle Length: {prediction['average_cycle_length']} days")
-            st.markdown(f"- Shortest Cycle: {prediction['shortest_cycle']} days")
-            st.markdown(f"- Longest Cycle: {prediction['longest_cycle']} days")
-            st.markdown(f"- Regularity: **{prediction['regularity']}**")
+if len(st.session_state.period_logs) < 2:
+    st.warning("Please log at least 2 periods to see predictions.")
+else:
+    st.divider()
+    st.subheader("📊 Logged Periods")
+    for i, (s, e) in enumerate(sorted(st.session_state.period_logs, key=lambda x: x[0])):
+        st.markdown(f"**Period #{i+1}:** {s.strftime('%Y-%m-%d')} to {e.strftime('%Y-%m-%d')}")
 
-            st.subheader("📍 Current Cycle Phase")
-            st.markdown(f"**{predictor.get_current_phase()}**")
+    predictor = CyclePredictor(st.session_state.period_logs)
+    prediction = predictor.predict_next_period()
 
-            ovulation_data = predictor.get_ovulation_and_fertility_window()
-            if "error" in ovulation_data:
-                st.warning(ovulation_data["error"])
-            else:
-                st.subheader("🌿 Ovulation & Fertile Window")
-                st.markdown(f"- Expected Ovulation: **{ovulation_data['ovulation_day']}**")
-                st.markdown(f"- Fertile Window: **{ovulation_data['fertile_window'][0]}** to **{ovulation_data['fertile_window'][1]}**")
+    if "error" in prediction:
+        st.error(prediction["error"])
+    else:
+        st.subheader("📅 Next Period Prediction")
+        st.success(f"Predicted Start Date: {prediction['predicted_start_date']}")
+        st.markdown(f"**Prediction Range:** {prediction['range'][0]} to {prediction['range'][1]}")
+        st.caption(f"Confidence: {prediction['confidence']} — Based on {prediction['based_on']}")
+
+        st.subheader("🔁 Cycle Stats")
+        st.markdown(f"- Average Cycle Length: {prediction['average_cycle_length']} days")
+        st.markdown(f"- Shortest Cycle: {prediction['shortest_cycle']} days")
+        st.markdown(f"- Longest Cycle: {prediction['longest_cycle']} days")
+        st.markdown(f"- Regularity: **{prediction['regularity']}**")
+
+        st.subheader("📍 Current Cycle Phase")
+        st.markdown(f"**{predictor.get_current_phase()}**")
+
+        ovulation_data = predictor.get_ovulation_and_fertility_window()
+        if "error" in ovulation_data:
+            st.warning(ovulation_data["error"])
+        else:
+            st.subheader("🌿 Ovulation & Fertile Window")
+            st.markdown(f"- Expected Ovulation: **{ovulation_data['ovulation_day']}**")
+            st.markdown(f"- Fertile Window: **{ovulation_data['fertile_window'][0]}** to **{ovulation_data['fertile_window'][1]}**")
