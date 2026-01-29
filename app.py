@@ -1,77 +1,77 @@
 import streamlit as st
 import datetime
 import numpy as np
-from statistics import median
+import pickle
 from sklearn.linear_model import LinearRegression
 
 st.set_page_config(page_title="Cycle Tracker", layout="centered")
+st.title("🔬 Research-Based")
+st.header("🩸 Add New Period")
 
-st.title("🌟 Research-Based")
-st.header("🛳️ Add New Period")
+# Initialize session state
+if "periods" not in st.session_state:
+    st.session_state.periods = []
 
-# Input form
-with st.form("period_form"):
-    new_start = st.date_input("Start Date", key="start")
-    new_end = st.date_input("End Date", key="end")
-    submitted = st.form_submit_button("Add Period")
+# Period input
+new_start = st.date_input("Start Date", key="start")
+new_end = st.date_input("End Date", key="end")
 
-    if submitted:
-        if new_start and new_end and new_start <= new_end:
-            if "periods" not in st.session_state:
-                st.session_state.periods = []
-            st.session_state.periods.append((new_start, new_end))
-            st.success("Period added.")
-        else:
-            st.error("Invalid dates. Start must be before end.")
+if st.button("Add Period"):
+    if new_start and new_end and new_start <= new_end:
+        st.session_state.periods.append((new_start, new_end))
+        st.success("Period added.")
+    else:
+        st.error("Please enter valid start and end dates.")
 
-# Retrieve periods
-periods = st.session_state.get("periods", [])
-sorted_periods = sorted(list(set(periods)))
-
-st.markdown("---")
-st.header("📊 All Logged Periods")
-if not sorted_periods:
+# Display logged periods
+st.subheader("📊 All Logged Periods")
+if not st.session_state.periods:
     st.info("No periods logged yet.")
 else:
+    sorted_periods = sorted(st.session_state.periods, key=lambda x: x[0])
     for i, (start, end) in enumerate(sorted_periods):
         st.write(f"**Period #{i+1}:** {start} to {end}")
 
-# --- ML prediction logic ---
-if len(sorted_periods) >= 2:
-    cycle_lengths = [
-        (sorted_periods[i + 1][0] - sorted_periods[i][0]).days
-        for i in range(len(sorted_periods) - 1)
-    ]
+    # Compute cycle lengths
+    cycle_lengths = []
+    for i in range(1, len(sorted_periods)):
+        prev_start = sorted_periods[i-1][0]
+        curr_start = sorted_periods[i][0]
+        diff = (curr_start - prev_start).days
+        cycle_lengths.append(diff)
 
-    # Remove invalid or duplicate cycles (e.g., <15 days)
-    cycle_lengths = [cl for cl in cycle_lengths if cl >= 15]
-
-    if len(cycle_lengths) < 2:
-        st.warning("Not enough valid cycle data for prediction.")
+    # Predict next cycle start
+    st.subheader("🗓️ Next Period Prediction")
+    if len(cycle_lengths) >= 3:
+        # Use linear regression model
+        X = np.arange(len(cycle_lengths)).reshape(-1, 1)
+        y = np.array(cycle_lengths)
+        model = LinearRegression()
+        model.fit(X, y)
+        next_cycle_length = int(model.predict(np.array([[len(cycle_lengths)]])).round())
+        prediction_method = "ML model (Linear + Smoothing)"
+    elif len(cycle_lengths) >= 2:
+        next_cycle_length = int(np.median(cycle_lengths))
+        prediction_method = "Median fallback"
     else:
-        if len(cycle_lengths) < 3:
-            predicted_cycle_length = int(median(cycle_lengths))
-            prediction_method = "Median fallback"
-        else:
-            X = np.arange(len(cycle_lengths)).reshape(-1, 1)
-            y = np.array(cycle_lengths)
-            model = LinearRegression().fit(X, y)
-            next_index = np.array([[len(cycle_lengths)]])
-            lr_pred = model.predict(next_index)[0]
-            exp_smooth = np.mean(cycle_lengths[-3:])
-            predicted_cycle_length = int(round((lr_pred + exp_smooth) / 2))
-            prediction_method = "ML model (Linear + Smoothing)"
+        next_cycle_length = None
 
-        last_start = sorted_periods[-1][0]
-        predicted_start = last_start + datetime.timedelta(days=predicted_cycle_length)
-        prediction_range = (
-            predicted_start - datetime.timedelta(days=3),
-            predicted_start + datetime.timedelta(days=3),
-        )
+    if next_cycle_length:
+        last_period_start = sorted_periods[-1][0]
+        predicted_start = last_period_start + datetime.timedelta(days=next_cycle_length)
+        prediction_range = (predicted_start - datetime.timedelta(days=3), predicted_start + datetime.timedelta(days=3))
 
-        st.markdown("---")
-        st.header("📅 Next Period Prediction")
         st.success(f"**Predicted Start Date:** {predicted_start}")
         st.write(f"**Prediction Range:** {prediction_range[0]} to {prediction_range[1]}")
-        st.caption(f"Confidence: {'Lower' if len(cycle_lengths) < 4 else 'Higher'} — Based on {len(cycle_lengths)} cycles")
-        st.caption(f"Prediction Method: {prediction_method}")
+        st.write(f"**Prediction Method:** {prediction_method}")
+
+        # Ovulation and Fertile Window
+        ovulation_date = predicted_start - datetime.timedelta(days=14)
+        fertile_start = ovulation_date - datetime.timedelta(days=3)
+        fertile_end = ovulation_date + datetime.timedelta(days=3)
+
+        st.subheader("🌿 Ovulation & Fertile Window")
+        st.write(f"**Expected Ovulation:** {ovulation_date}")
+        st.write(f"**Fertile Window:** {fertile_start} to {fertile_end}")
+    else:
+        st.warning("Please log at least 2 periods to see predictions.")
