@@ -1,6 +1,8 @@
 import streamlit as st
 from datetime import datetime, timedelta
 import statistics
+from sklearn.linear_model import LinearRegression
+import numpy as np
 
 # --- Cycle Predictor Logic ---
 class CyclePredictor:
@@ -18,7 +20,6 @@ class CyclePredictor:
             for i in range(len(self.period_start_dates) - 1)
         ]
 
-        # Use median for more accurate prediction
         self.median_cycle_length = statistics.median(cycle_lengths)
         self.min_cycle_length = min(cycle_lengths)
         self.max_cycle_length = max(cycle_lengths)
@@ -26,12 +27,33 @@ class CyclePredictor:
 
         return cycle_lengths
 
+    def predict_next_cycle_length(self):
+        if len(self.cycle_lengths) < 2:
+            return self.median_cycle_length, "Median only"
+
+        # Linear Regression
+        X = np.arange(len(self.cycle_lengths)).reshape(-1, 1)
+        y = np.array(self.cycle_lengths)
+        model = LinearRegression().fit(X, y)
+        predicted_length_lr = model.predict([[len(self.cycle_lengths)]])[0]
+
+        # Exponential Smoothing (weighted average of last 3)
+        weights = [0.5, 0.3, 0.2]
+        recent = self.cycle_lengths[-3:] if len(self.cycle_lengths) >= 3 else self.cycle_lengths
+        weights = weights[-len(recent):]
+        smoothing = sum(w * l for w, l in zip(reversed(weights), reversed(recent)))
+
+        # Final blended prediction
+        predicted = (predicted_length_lr + smoothing) / 2
+        return predicted, "ML model (Linear + Smoothing)"
+
     def predict_next_period(self):
         if len(self.period_start_dates) < 2:
             return {"error": "Log at least 2 periods to predict."}
 
+        predicted_length, method = self.predict_next_cycle_length()
         last_period_start = self.period_start_dates[-1]
-        predicted_start = last_period_start + timedelta(days=round(self.median_cycle_length))
+        predicted_start = last_period_start + timedelta(days=round(predicted_length))
 
         range_start = last_period_start + timedelta(days=self.min_cycle_length)
         range_end = last_period_start + timedelta(days=self.max_cycle_length)
@@ -42,7 +64,8 @@ class CyclePredictor:
             "confidence": "Higher" if self.is_regular else "Lower",
             "regularity": "Regular" if self.is_regular else "Irregular",
             "based_on": f"{len(self.cycle_lengths)} cycles",
-            "median_cycle_length": round(self.median_cycle_length),
+            "prediction_method": method,
+            "predicted_cycle_length": round(predicted_length),
             "shortest_cycle": self.min_cycle_length,
             "longest_cycle": self.max_cycle_length
         }
@@ -75,8 +98,9 @@ class CyclePredictor:
         if len(self.period_start_dates) < 2:
             return {"error": "Log at least 2 periods to calculate ovulation."}
 
+        predicted_length, _ = self.predict_next_cycle_length()
         last_period_start = self.period_start_dates[-1]
-        ovulation_day = last_period_start + timedelta(days=round(self.median_cycle_length) - 14)
+        ovulation_day = last_period_start + timedelta(days=round(predicted_length) - 14)
         fertile_start = ovulation_day - timedelta(days=5)
         fertile_end = ovulation_day + timedelta(days=1)
 
@@ -130,9 +154,10 @@ else:
         st.success(f"Predicted Start Date: {prediction['predicted_start_date']}")
         st.markdown(f"**Prediction Range:** {prediction['range'][0]} to {prediction['range'][1]}")
         st.caption(f"Confidence: {prediction['confidence']} — Based on {prediction['based_on']}")
+        st.caption(f"Prediction Method: {prediction['prediction_method']}")
 
         st.subheader("🔁 Cycle Stats")
-        st.markdown(f"- Median Cycle Length: {prediction['median_cycle_length']} days")
+        st.markdown(f"- Predicted Cycle Length: {prediction['predicted_cycle_length']} days")
         st.markdown(f"- Shortest Cycle: {prediction['shortest_cycle']} days")
         st.markdown(f"- Longest Cycle: {prediction['longest_cycle']} days")
         st.markdown(f"- Regularity: **{prediction['regularity']}**")
