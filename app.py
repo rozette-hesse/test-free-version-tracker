@@ -1,174 +1,85 @@
 import streamlit as st
 from datetime import datetime, timedelta
-import statistics
+from statistics import median
 from sklearn.linear_model import LinearRegression
 import numpy as np
 
-# --- Cycle Predictor Logic ---
-class CyclePredictor:
-    def __init__(self, period_ranges):
-        self.period_ranges = sorted(period_ranges, key=lambda x: x[0])
-        self.period_start_dates = [start for start, _ in self.period_ranges]
-        self.cycle_lengths = self._calculate_cycle_lengths()
-
-    def _calculate_cycle_lengths(self):
-        if len(self.period_start_dates) < 2:
-            return []
-
-        cycle_lengths = [
-            (self.period_start_dates[i + 1] - self.period_start_dates[i]).days
-            for i in range(len(self.period_start_dates) - 1)
-        ]
-
-        self.median_cycle_length = statistics.median(cycle_lengths)
-        self.min_cycle_length = min(cycle_lengths)
-        self.max_cycle_length = max(cycle_lengths)
-        self.is_regular = (self.max_cycle_length - self.min_cycle_length) <= 10
-
-        return cycle_lengths
-
-    def predict_next_cycle_length(self):
-        if len(self.cycle_lengths) < 2:
-            return self.median_cycle_length, "Median only"
-
-        # Linear Regression
-        X = np.arange(len(self.cycle_lengths)).reshape(-1, 1)
-        y = np.array(self.cycle_lengths)
-        model = LinearRegression().fit(X, y)
-        predicted_length_lr = model.predict([[len(self.cycle_lengths)]])[0]
-
-        # Exponential Smoothing (weighted average of last 3)
-        weights = [0.5, 0.3, 0.2]
-        recent = self.cycle_lengths[-3:] if len(self.cycle_lengths) >= 3 else self.cycle_lengths
-        weights = weights[-len(recent):]
-        smoothing = sum(w * l for w, l in zip(reversed(weights), reversed(recent)))
-
-        # Final blended prediction
-        predicted = (predicted_length_lr + smoothing) / 2
-        return predicted, "ML model (Linear + Smoothing)"
-
-    def predict_next_period(self):
-        if len(self.period_start_dates) < 2:
-            return {"error": "Log at least 2 periods to predict."}
-
-        predicted_length, method = self.predict_next_cycle_length()
-        last_period_start = self.period_start_dates[-1]
-        predicted_start = last_period_start + timedelta(days=round(predicted_length))
-
-        range_start = last_period_start + timedelta(days=self.min_cycle_length)
-        range_end = last_period_start + timedelta(days=self.max_cycle_length)
-
-        return {
-            "predicted_start_date": predicted_start.strftime("%Y-%m-%d"),
-            "range": [range_start.strftime("%Y-%m-%d"), range_end.strftime("%Y-%m-%d")],
-            "confidence": "Higher" if self.is_regular else "Lower",
-            "regularity": "Regular" if self.is_regular else "Irregular",
-            "based_on": f"{len(self.cycle_lengths)} cycles",
-            "prediction_method": method,
-            "predicted_cycle_length": round(predicted_length),
-            "shortest_cycle": self.min_cycle_length,
-            "longest_cycle": self.max_cycle_length
-        }
-
-    def get_current_phase(self, current_date=None):
-        if not self.period_start_dates:
-            return "Insufficient data"
-
-        current_date = datetime.today() if not current_date else datetime.strptime(current_date, "%Y-%m-%d")
-        last_start = self.period_start_dates[-1]
-        days_since_last_period = (current_date - last_start).days
-
-        if days_since_last_period < 0:
-            return "Invalid date: before last period"
-
-        cycle_day = days_since_last_period + 1
-
-        if cycle_day <= 5:
-            phase = "Menstrual Phase"
-        elif cycle_day <= 12:
-            phase = "Follicular Phase"
-        elif cycle_day <= 15:
-            phase = "Ovulatory Phase"
-        else:
-            phase = "Luteal Phase"
-
-        return f"Cycle Day {cycle_day} — {phase}"
-
-    def get_ovulation_and_fertility_window(self):
-        if len(self.period_start_dates) < 2:
-            return {"error": "Log at least 2 periods to calculate ovulation."}
-
-        predicted_length, _ = self.predict_next_cycle_length()
-        last_period_start = self.period_start_dates[-1]
-        ovulation_day = last_period_start + timedelta(days=round(predicted_length) - 14)
-        fertile_start = ovulation_day - timedelta(days=5)
-        fertile_end = ovulation_day + timedelta(days=1)
-
-        return {
-            "ovulation_day": ovulation_day.strftime("%Y-%m-%d"),
-            "fertile_window": [
-                fertile_start.strftime("%Y-%m-%d"),
-                fertile_end.strftime("%Y-%m-%d")
-            ]
-        }
-
-# --- Streamlit App ---
 st.set_page_config(page_title="Cycle Tracker", layout="centered")
-st.title("Menstrual Cycle Tracker — Research-Based")
 
-if "period_logs" not in st.session_state:
-    st.session_state.period_logs = []
+st.title("🩺 Research-Based")
+st.header("🩷 Add New Period")
 
-st.subheader("📥 Add New Period")
-with st.form(key="new_period_form"):
+if "periods" not in st.session_state:
+    st.session_state["periods"] = []
+
+with st.form("period_form"):
     new_start = st.date_input("Start Date")
     new_end = st.date_input("End Date")
-    submit = st.form_submit_button("Add Period")
+    submitted = st.form_submit_button("Add Period")
 
-    if submit:
+    if submitted:
         if new_start and new_end and new_start <= new_end:
-            start_dt = datetime.combine(new_start, datetime.min.time())
-            end_dt = datetime.combine(new_end, datetime.min.time())
-            st.session_state.period_logs.append((start_dt, end_dt))
-            st.success("Period added.")
-            st.rerun()
+            new_period = (new_start, new_end)
+            if new_period not in st.session_state.periods:
+                st.session_state.periods.append(new_period)
+                st.success("Period added.")
+                st.rerun()
+            else:
+                st.warning("This period is already logged.")
         else:
-            st.error("Please enter valid start and end dates.")
+            st.error("Please ensure the dates are valid.")
 
-if st.session_state.period_logs:
-    st.divider()
-    st.subheader("📊 All Logged Periods")
-    for i, (s, e) in enumerate(sorted(st.session_state.period_logs, key=lambda x: x[0])):
-        st.markdown(f"**Period #{i+1}:** {s.strftime('%Y-%m-%d')} to {e.strftime('%Y-%m-%d')}")
-
-if len(st.session_state.period_logs) < 2:
-    st.warning("Please log at least 2 periods to see predictions.")
+st.subheader("📊 All Logged Periods")
+if st.session_state.periods:
+    sorted_periods = sorted(st.session_state.periods, key=lambda x: x[0])
+    for i, (start, end) in enumerate(sorted_periods):
+        st.markdown(f"**Period #{i+1}:** {start} to {end}")
 else:
-    predictor = CyclePredictor(st.session_state.period_logs)
-    prediction = predictor.predict_next_period()
+    st.info("No periods logged yet.")
 
-    if "error" in prediction:
-        st.error(prediction["error"])
-    else:
-        st.subheader("📅 Next Period Prediction")
-        st.success(f"Predicted Start Date: {prediction['predicted_start_date']}")
-        st.markdown(f"**Prediction Range:** {prediction['range'][0]} to {prediction['range'][1]}")
-        st.caption(f"Confidence: {prediction['confidence']} — Based on {prediction['based_on']}")
-        st.caption(f"Prediction Method: {prediction['prediction_method']}")
+if len(sorted_periods) < 2:
+    st.warning("Please log at least 2 periods to see predictions.")
+    st.stop()
 
-        st.subheader("🔁 Cycle Stats")
-        st.markdown(f"- Predicted Cycle Length: {prediction['predicted_cycle_length']} days")
-        st.markdown(f"- Shortest Cycle: {prediction['shortest_cycle']} days")
-        st.markdown(f"- Longest Cycle: {prediction['longest_cycle']} days")
-        st.markdown(f"- Regularity: **{prediction['regularity']}**")
+# --- Calculate cycle lengths ---
+cycle_start_dates = sorted([start for start, end in sorted_periods])
+raw_cycle_lengths = [
+    (cycle_start_dates[i + 1] - cycle_start_dates[i]).days
+    for i in range(len(cycle_start_dates) - 1)
+]
 
-        st.subheader("📍 Current Cycle Phase")
-        st.markdown(f"**{predictor.get_current_phase()}**")
+# --- Filter invalid cycles (shorter than 15 days or longer than 90) ---
+cycle_lengths = [cl for cl in raw_cycle_lengths if 15 <= cl <= 90]
 
-        ovulation_data = predictor.get_ovulation_and_fertility_window()
-        if "error" in ovulation_data:
-            st.warning(ovulation_data["error"])
-        else:
-            st.subheader("🌿 Ovulation & Fertile Window")
-            st.markdown(f"- Expected Ovulation: **{ovulation_data['ovulation_day']}**")
-            st.markdown(f"- Fertile Window: **{ovulation_data['fertile_window'][0]}** to **{ovulation_data['fertile_window'][1]}**")
+if len(cycle_lengths) < 1:
+    st.warning("Not enough valid cycle data to predict.")
+    st.stop()
+
+# --- Predict next cycle start ---
+last_period_start = cycle_start_dates[-1]
+
+if len(cycle_lengths) < 3:
+    # Use median
+    predicted_cycle_length = median(cycle_lengths)
+    prediction_method = "Median (fallback)"
+else:
+    # Linear Regression + Exponential Smoothing
+    x = np.arange(len(cycle_lengths)).reshape(-1, 1)
+    y = np.array(cycle_lengths)
+    model = LinearRegression().fit(x, y)
+    lr_pred = model.predict(np.array([[len(cycle_lengths)]]))[0]
+    exp_smooth = np.mean(cycle_lengths[-3:])
+    predicted_cycle_length = (lr_pred + exp_smooth) / 2
+    prediction_method = "ML model (Linear + Smoothing)"
+
+predicted_start_date = last_period_start + timedelta(days=round(predicted_cycle_length))
+prediction_range = (
+    last_period_start + timedelta(days=round(predicted_cycle_length - 5)),
+    last_period_start + timedelta(days=round(predicted_cycle_length + 5))
+)
+
+st.subheader("🗓️ Next Period Prediction")
+st.success(f"Predicted Start Date: {predicted_start_date}")
+st.write(f"**Prediction Range:** {prediction_range[0]} to {prediction_range[1]}")
+st.caption(f"Confidence: {'Higher' if len(cycle_lengths) >= 3 else 'Lower'} — Based on {len(cycle_lengths)} cycles")
+st.caption(f"Prediction Method: {prediction_method}")
