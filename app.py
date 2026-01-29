@@ -106,17 +106,19 @@ with st.form(key="new_period_form"):
             end_dt = datetime.combine(new_end, datetime.min.time())
             st.session_state.period_logs.append((start_dt, end_dt))
             st.success("Period added.")
+            st.experimental_rerun()
         else:
             st.error("Please enter valid start and end dates.")
+
+if st.session_state.period_logs:
+    st.divider()
+    st.subheader("📊 All Logged Periods")
+    for i, (s, e) in enumerate(sorted(st.session_state.period_logs, key=lambda x: x[0])):
+        st.markdown(f"**Period #{i+1}:** {s.strftime('%Y-%m-%d')} to {e.strftime('%Y-%m-%d')}")
 
 if len(st.session_state.period_logs) < 2:
     st.warning("Please log at least 2 periods to see predictions.")
 else:
-    st.divider()
-    st.subheader("📊 Logged Periods")
-    for i, (s, e) in enumerate(sorted(st.session_state.period_logs, key=lambda x: x[0])):
-        st.markdown(f"**Period #{i+1}:** {s.strftime('%Y-%m-%d')} to {e.strftime('%Y-%m-%d')}")
-
     predictor = CyclePredictor(st.session_state.period_logs)
     prediction = predictor.predict_next_period()
 
